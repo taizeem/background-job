@@ -1,6 +1,7 @@
 import logging
 import signal
 import time
+import traceback
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -11,6 +12,7 @@ from django.utils import timezone
 
 from apps.jobs.constants import AttemptStatus, JobStatus
 from apps.jobs.models import Job, JobAttempt
+from apps.jobs.registry import get_handler
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +22,9 @@ class WorkerOptions:
     """Configuration options for a WorkerEngine instance."""
 
     worker_id: str | None = None
-    poll_interval: float = 1.0  # Seconds to wait when no jobs are available
-    lease_duration_seconds: int = 300  # Default 5-minute lease
-    burst: bool = False  # If True, process all ready jobs and exit immediately
+    poll_interval: float = 1.0
+    lease_duration_seconds: int = 300
+    burst: bool = False
 
 
 class WorkerEngine:
@@ -53,8 +55,6 @@ class WorkerEngine:
         """
         Atomically claims the highest priority, oldest eligible job using
         SELECT ... FOR UPDATE SKIP LOCKED.
-
-        The transaction commits immediately upon updating status to CLAIMED.
         """
         now = timezone.now()
         with transaction.atomic():
@@ -86,13 +86,13 @@ class WorkerEngine:
 
     def execute_job(self, job: Job) -> bool:
         """
-        Executes a claimed job, tracking elapsed time and persisting the result.
+        Dispatches a claimed job to its registered handler and records results or errors.
         Runs entirely outside of the claiming transaction.
         """
         start_time = time.monotonic()
         attempt_number = job.attempt_count + 1
 
-        # 1. Transition to RUNNING and record attempt start
+        # 1. Transition to RUNNING
         with transaction.atomic():
             job.transition_to(JobStatus.RUNNING)
             job.attempt_count = attempt_number
@@ -119,16 +119,19 @@ class WorkerEngine:
                 "Worker %s executing Job %s (%s)", self.worker_id, job.id, job.job_type
             )
 
-            # Simulated execution payload processing for Phase 4
-            # (Phase 5 introduces the full dynamic handler registry)
-            result_data = {
-                "message": f"Successfully processed job_type '{job.job_type}'",
-                "received_payload": job.payload,
-            }
+            # Resolve handler from registry
+            handler = get_handler(job.job_type)
+            if not handler:
+                raise ValueError(
+                    f"No handler registered for job_type '{job.job_type}'."
+                )
+
+            # Execute the handler with payload
+            result_data = handler(job.payload)
 
             elapsed_ms = (time.monotonic() - start_time) * 1000
 
-            # 2. Transition to COMPLETED
+            # 2. Record SUCCESS and transition to COMPLETED
             with transaction.atomic():
                 job.transition_to(JobStatus.COMPLETED)
                 job.result = result_data
@@ -160,17 +163,23 @@ class WorkerEngine:
 
         except Exception as exc:
             elapsed_ms = (time.monotonic() - start_time) * 1000
-            logger.exception("Worker %s encountered error on Job %s", self.worker_id, job.id)
+            stack_trace = traceback.format_exc()
+            logger.exception(
+                "Worker %s encountered error on Job %s", self.worker_id, job.id
+            )
 
+            # 3. Record FAILURE and transition to FAILED
             with transaction.atomic():
                 job.transition_to(JobStatus.FAILED)
                 job.error_message = str(exc)
+                job.error_traceback = stack_trace
                 job.claimed_by = None
                 job.lease_expires_at = None
                 job.save(
                     update_fields=[
                         "status",
                         "error_message",
+                        "error_traceback",
                         "claimed_by",
                         "lease_expires_at",
                         "completed_at",
@@ -181,6 +190,7 @@ class WorkerEngine:
                 attempt.status = AttemptStatus.FAILURE
                 attempt.duration_ms = elapsed_ms
                 attempt.error_message = str(exc)
+                attempt.error_traceback = stack_trace
                 attempt.completed_at = timezone.now()
                 attempt.save()
 

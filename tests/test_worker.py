@@ -2,7 +2,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
-from django.db import connection
 from django.utils import timezone
 
 from apps.jobs.constants import AttemptStatus, JobPriority, JobStatus
@@ -111,6 +110,7 @@ def test_concurrent_claiming_prevents_duplicate_claims():
 
     def claim_task(worker_name: str):
         from django.db import connections
+
         try:
             connections.close_all()
             job = WorkerEngine.claim_next_job(worker_id=worker_name)
@@ -123,8 +123,7 @@ def test_concurrent_claiming_prevents_duplicate_claims():
     # Run 3 workers concurrently across threads
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
-            executor.submit(claim_task, f"concurrent-worker-{i}")
-            for i in range(3)
+            executor.submit(claim_task, f"concurrent-worker-{i}") for i in range(3)
         ]
         for f in futures:
             f.result()
