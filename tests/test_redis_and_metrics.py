@@ -49,17 +49,18 @@ def test_rate_limiter_fails_open_when_redis_down(api_client: APIClient):
     """
     Verifies graceful degradation: if Redis is unreachable, requests are allowed.
     """
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
     url = reverse("job-list-create")
 
     with patch("apps.accounts.throttling.get_redis_client") as mock_client:
-        mock_client.side_effect = ConnectionError("Could not reach Redis")
+        mock_client.side_effect = RedisConnectionError("Could not reach Redis")
 
         response = api_client.post(
             url,
             data={"job_type": "reports.generate", "payload": {}},
             format="json",
         )
-        # Must fail open (allow request) rather than returning HTTP 500
         assert response.status_code == status.HTTP_201_CREATED
 
 
