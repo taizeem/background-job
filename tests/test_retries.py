@@ -117,9 +117,10 @@ def test_max_attempts_exhaustion_moves_to_dead_letter():
 
 
 @pytest.mark.django_db
-def test_manual_retry_revives_exhausted_job(api_client: APIClient):
+def test_manual_retry_revives_exhausted_job(api_client: APIClient, auth_user):
     """Verifies POST /api/v1/jobs/<id>/retry/ resets an EXHAUSTED job back to PENDING."""
     job = Job.objects.create(
+        user=auth_user,
         job_type="email.send",
         status=JobStatus.EXHAUSTED,
         attempt_count=3,
