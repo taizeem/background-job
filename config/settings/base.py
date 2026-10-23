@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "apps.core.apps.CoreConfig",
     "apps.jobs.apps.JobsConfig",
     "apps.worker.apps.WorkerConfig",
+    "apps.scheduler.apps.SchedulerConfig",
 ]
 
 MIDDLEWARE = [
