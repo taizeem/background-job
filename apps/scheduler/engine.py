@@ -84,6 +84,7 @@ class SchedulerEngine:
                     ]
                 )
                 enqueued_count += 1
+                print(f"[SCHEDULER] Enqueued periodic task '{task.name}' -> Next execution at {task.next_run_at.strftime('%H:%M:%S UTC')}")
                 logger.info(
                     "Scheduler enqueued task '%s' (next run at %s)",
                     task.name,
