@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     # Local apps
     "apps.core.apps.CoreConfig",
     "apps.jobs.apps.JobsConfig",
+    "apps.worker.apps.WorkerConfig",
 ]
 
 MIDDLEWARE = [
