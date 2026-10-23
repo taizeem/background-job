@@ -1,5 +1,3 @@
-from django.db import models
-
 # Create your models here.
 import uuid
 from datetime import datetime, timedelta
@@ -94,10 +92,14 @@ class PeriodicTask(models.Model):
     def clean(self) -> None:
         """Validates that exactly one schedule type is provided and parses cron syntax."""
         if not self.cron_expression and not self.interval_seconds:
-            raise ValidationError("You must specify either a cron_expression or interval_seconds.")
+            raise ValidationError(
+                "You must specify either a cron_expression or interval_seconds."
+            )
 
         if self.cron_expression and self.interval_seconds:
-            raise ValidationError("Cannot specify both cron_expression and interval_seconds.")
+            raise ValidationError(
+                "Cannot specify both cron_expression and interval_seconds."
+            )
 
         if self.cron_expression and not croniter.is_valid(self.cron_expression):
             raise ValidationError(f"Invalid cron expression: '{self.cron_expression}'.")

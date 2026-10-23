@@ -5,34 +5,125 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='PeriodicTask',
+            name="PeriodicTask",
             fields=[
-                ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('name', models.CharField(help_text='Unique human-readable identifier (e.g. hourly-cache-cleanup)', max_length=128, unique=True)),
-                ('job_type', models.CharField(help_text='The registered handler identifier (e.g. maintenance.cleanup)', max_length=255)),
-                ('payload', models.JSONField(blank=True, default=dict, help_text='JSON payload passed to each generated job instance')),
-                ('priority', models.IntegerField(choices=[(10, 'Low'), (20, 'Default'), (30, 'High'), (40, 'Critical')], default=20)),
-                ('cron_expression', models.CharField(blank=True, help_text="Standard 5-part cron syntax (e.g. '0 * * * *' for hourly)", max_length=64, null=True)),
-                ('interval_seconds', models.PositiveIntegerField(blank=True, help_text='Recurring interval in seconds (e.g. 300 for every 5 minutes)', null=True)),
-                ('is_active', models.BooleanField(db_index=True, default=True, help_text='Inactive tasks are ignored by the scheduler')),
-                ('total_run_count', models.PositiveIntegerField(default=0, help_text='Number of times this periodic task has been enqueued')),
-                ('last_run_at', models.DateTimeField(blank=True, help_text='Timestamp of the most recent execution dispatch', null=True)),
-                ('next_run_at', models.DateTimeField(db_index=True, help_text='Next scheduled execution timestamp')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "name",
+                    models.CharField(
+                        help_text="Unique human-readable identifier (e.g. hourly-cache-cleanup)",
+                        max_length=128,
+                        unique=True,
+                    ),
+                ),
+                (
+                    "job_type",
+                    models.CharField(
+                        help_text="The registered handler identifier (e.g. maintenance.cleanup)",
+                        max_length=255,
+                    ),
+                ),
+                (
+                    "payload",
+                    models.JSONField(
+                        blank=True,
+                        default=dict,
+                        help_text="JSON payload passed to each generated job instance",
+                    ),
+                ),
+                (
+                    "priority",
+                    models.IntegerField(
+                        choices=[
+                            (10, "Low"),
+                            (20, "Default"),
+                            (30, "High"),
+                            (40, "Critical"),
+                        ],
+                        default=20,
+                    ),
+                ),
+                (
+                    "cron_expression",
+                    models.CharField(
+                        blank=True,
+                        help_text="Standard 5-part cron syntax (e.g. '0 * * * *' for hourly)",
+                        max_length=64,
+                        null=True,
+                    ),
+                ),
+                (
+                    "interval_seconds",
+                    models.PositiveIntegerField(
+                        blank=True,
+                        help_text="Recurring interval in seconds (e.g. 300 for every 5 minutes)",
+                        null=True,
+                    ),
+                ),
+                (
+                    "is_active",
+                    models.BooleanField(
+                        db_index=True,
+                        default=True,
+                        help_text="Inactive tasks are ignored by the scheduler",
+                    ),
+                ),
+                (
+                    "total_run_count",
+                    models.PositiveIntegerField(
+                        default=0,
+                        help_text="Number of times this periodic task has been enqueued",
+                    ),
+                ),
+                (
+                    "last_run_at",
+                    models.DateTimeField(
+                        blank=True,
+                        help_text="Timestamp of the most recent execution dispatch",
+                        null=True,
+                    ),
+                ),
+                (
+                    "next_run_at",
+                    models.DateTimeField(
+                        db_index=True, help_text="Next scheduled execution timestamp"
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
             ],
             options={
-                'ordering': ('next_run_at', 'name'),
-                'indexes': [models.Index(fields=['is_active', 'next_run_at'], name='idx_periodic_due_tasks')],
-                'constraints': [models.CheckConstraint(condition=models.Q(('cron_expression__isnull', False), ('interval_seconds__isnull', False), _connector='OR'), name='chk_periodic_has_schedule')],
+                "ordering": ("next_run_at", "name"),
+                "indexes": [
+                    models.Index(
+                        fields=["is_active", "next_run_at"],
+                        name="idx_periodic_due_tasks",
+                    )
+                ],
+                "constraints": [
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            ("cron_expression__isnull", False),
+                            ("interval_seconds__isnull", False),
+                            _connector="OR",
+                        ),
+                        name="chk_periodic_has_schedule",
+                    )
+                ],
             },
         ),
     ]
