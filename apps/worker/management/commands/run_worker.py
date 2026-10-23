@@ -40,6 +40,8 @@ class Command(BaseCommand):
         )
         engine = WorkerEngine(options=worker_options)
         self.stdout.write(
-            self.style.SUCCESS(f"Launching worker process '{engine.worker_id}'...")
+            self.style.SUCCESS(
+                f"Worker '{engine.worker_id}' is active and listening for jobs (poll_interval={worker_options.poll_interval}s). Press Ctrl+C to stop."
+            )
         )
         engine.run()

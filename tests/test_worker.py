@@ -110,16 +110,21 @@ def test_concurrent_claiming_prevents_duplicate_claims():
     claimed_results = []
 
     def claim_task(worker_name: str):
-        # Force a fresh database connection per thread
-        connection.close()
-        job = WorkerEngine.claim_next_job(worker_id=worker_name)
-        if job:
-            claimed_results.append((worker_name, job.id))
+        from django.db import connections
+        try:
+            connections.close_all()
+            job = WorkerEngine.claim_next_job(worker_id=worker_name)
+            if job:
+                claimed_results.append((worker_name, job.id))
+        finally:
+            # Explicitly close this thread's connection when finished
+            connections.close_all()
 
     # Run 3 workers concurrently across threads
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
-            executor.submit(claim_task, f"concurrent-worker-{i}") for i in range(3)
+            executor.submit(claim_task, f"concurrent-worker-{i}")
+            for i in range(3)
         ]
         for f in futures:
             f.result()
