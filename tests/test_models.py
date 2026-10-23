@@ -55,7 +55,9 @@ def test_invalid_state_machine_transition_raises_validation_error():
     """Verifies that jumping from PENDING directly to COMPLETED raises a ValidationError."""
     job = Job.objects.create(job_type="email.send")
 
-    with pytest.raises(ValidationError, match="Illegal state transition from PENDING to COMPLETED"):
+    with pytest.raises(
+        ValidationError, match="Illegal state transition from PENDING to COMPLETED"
+    ):
         job.transition_to(JobStatus.COMPLETED)
 
 
@@ -67,7 +69,9 @@ def test_terminal_state_cannot_transition():
     job.save()
 
     assert job.is_terminal is True
-    with pytest.raises(ValidationError, match="Illegal state transition from CANCELLED to PENDING"):
+    with pytest.raises(
+        ValidationError, match="Illegal state transition from CANCELLED to PENDING"
+    ):
         job.transition_to(JobStatus.PENDING)
 
 
