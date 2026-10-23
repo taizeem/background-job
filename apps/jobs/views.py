@@ -1,10 +1,11 @@
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import permissions, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.authentication import ApiKeyAuthentication
 from apps.jobs.constants import JobStatus
 from apps.jobs.models import Job
 from apps.jobs.serializers import (
@@ -16,12 +17,12 @@ from apps.jobs.services.job_service import (
     IdempotencyConflictError,
     JobCancellationError,
     JobService,
+    PayloadTooLargeError,
+    QuotaExceededError,
 )
 
 
 class StandardResultsSetPagination(PageNumberPagination):
-    """Standard pagination configuration for job lists."""
-
     page_size = 20
     page_size_query_param = "page_size"
     max_page_size = 100
@@ -29,15 +30,18 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 class JobListCreateView(APIView):
     """
-    GET  /api/v1/jobs/ -> List jobs with optional filtering.
-    POST /api/v1/jobs/ -> Submit a new background job.
+    GET  /api/v1/jobs/ -> List jobs owned by the authenticated user.
+    POST /api/v1/jobs/ -> Submit a new background job with quota enforcement.
     """
 
-    authentication_classes = ()
-    permission_classes = ()
+    authentication_classes = (ApiKeyAuthentication,)
+    permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request: Request) -> Response:
+        # Tenant isolation: users only see their own jobs unless staff
         queryset = Job.objects.all().order_by("-created_at")
+        if not request.user.is_staff:
+            queryset = queryset.filter(user=request.user)
 
         status_param = request.query_params.get("status")
         if status_param:
@@ -61,20 +65,30 @@ class JobListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
 
         validated_data = serializer.validated_data
+        api_key = request.auth  # The ApiKey instance from authentication backend
+        max_quota = api_key.max_active_jobs if api_key else 10
+
         try:
             result = JobService.create_job(
+                user=request.user,
                 job_type=validated_data["job_type"],
                 payload=validated_data.get("payload", {}),
                 priority=validated_data.get("priority"),
                 max_attempts=validated_data.get("max_attempts"),
                 scheduled_at=validated_data.get("scheduled_at"),
                 idempotency_key=validated_data.get("idempotency_key"),
+                max_active_jobs=max_quota,
+            )
+        except QuotaExceededError as exc:
+            return Response(
+                {"error": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+        except PayloadTooLargeError as exc:
+            return Response(
+                {"error": str(exc)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
             )
         except IdempotencyConflictError as exc:
-            return Response(
-                {"error": str(exc)},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return Response({"error": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         response_status = (
             status.HTTP_201_CREATED if result.is_created else status.HTTP_200_OK
@@ -85,14 +99,18 @@ class JobListCreateView(APIView):
 
 class JobDetailView(APIView):
     """
-    GET /api/v1/jobs/<uuid:job_id>/ -> Retrieve full details and attempts for a specific job.
+    GET /api/v1/jobs/<uuid:job_id>/ -> Retrieve full details for a tenant-owned job.
     """
 
-    authentication_classes = ()
-    permission_classes = ()
+    authentication_classes = (ApiKeyAuthentication,)
+    permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request: Request, job_id: str) -> Response:
-        job = Job.objects.filter(id=job_id).first()
+        queryset = Job.objects.filter(id=job_id)
+        if not request.user.is_staff:
+            queryset = queryset.filter(user=request.user)
+
+        job = queryset.first()
         if not job:
             return Response(
                 {"error": f"Job with ID '{job_id}' not found."},
@@ -104,15 +122,15 @@ class JobDetailView(APIView):
 
 class JobCancelView(APIView):
     """
-    POST /api/v1/jobs/<uuid:job_id>/cancel/ -> Cancel an eligible job.
+    POST /api/v1/jobs/<uuid:job_id>/cancel/ -> Cancel an eligible tenant-owned job.
     """
 
-    authentication_classes = ()
-    permission_classes = ()
+    authentication_classes = (ApiKeyAuthentication,)
+    permission_classes = (permissions.IsAuthenticated,)
 
     def post(self, request: Request, job_id: str) -> Response:
         try:
-            job = JobService.cancel_job(job_id=job_id)
+            job = JobService.cancel_job(job_id=job_id, user=request.user)
         except Job.DoesNotExist:
             return Response(
                 {"error": f"Job with ID '{job_id}' not found."},
@@ -131,14 +149,17 @@ class JobCancelView(APIView):
 class JobRetryView(APIView):
     """
     POST /api/v1/jobs/<uuid:job_id>/retry/ -> Manually re-queues an EXHAUSTED or FAILED job.
-    Resets attempt_count and sets status=PENDING.
     """
 
-    authentication_classes = ()
-    permission_classes = ()
+    authentication_classes = (ApiKeyAuthentication,)
+    permission_classes = (permissions.IsAuthenticated,)
 
     def post(self, request: Request, job_id: str) -> Response:
-        job = Job.objects.filter(id=job_id).first()
+        queryset = Job.objects.filter(id=job_id)
+        if not request.user.is_staff:
+            queryset = queryset.filter(user=request.user)
+
+        job = queryset.first()
         if not job:
             return Response(
                 {"error": f"Job with ID '{job_id}' not found."},

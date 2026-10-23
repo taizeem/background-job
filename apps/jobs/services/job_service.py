@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -18,39 +19,58 @@ class JobCancellationError(Exception):
     """Raised when a job cannot be cancelled due to its current lifecycle state."""
 
 
+class QuotaExceededError(Exception):
+    """Raised when a user exceeds their allowed active job quota."""
+
+
+class PayloadTooLargeError(Exception):
+    """Raised when a job payload exceeds maximum byte size limits."""
+
+
 @dataclass(frozen=True)
 class JobCreationResult:
     """Encapsulates the outcome of a job submission."""
 
     job: Job
-    is_created: (
-        bool  # True if newly inserted, False if resolved via existing idempotency key
-    )
+    is_created: bool
 
 
 class JobService:
     """Service layer managing job persistence, deduplication, and lifecycle operations."""
 
-    @staticmethod
+    MAX_PAYLOAD_BYTES: int = 65_536  # 64 KB maximum payload size
+
+    @classmethod
     def create_job(
+        cls,
         *,
         job_type: str,
+        user=None,
         payload: dict[str, Any] | None = None,
         priority: int = JobPriority.DEFAULT,
         max_attempts: int = 3,
         scheduled_at: datetime | None = None,
         idempotency_key: str | None = None,
+        max_active_jobs: int = 10,
     ) -> JobCreationResult:
         """
         Creates a new job or returns an existing one if an identical idempotency key is matched.
-        Uses atomic transactions to ensure data integrity.
+        Enforces payload size constraints and per-user active job quotas.
         """
         clean_payload = payload if payload is not None else {}
         effective_scheduled_at = (
             scheduled_at if scheduled_at is not None else timezone.now()
         )
 
+        # 1. Enforce payload size limit
+        payload_bytes = len(json.dumps(clean_payload).encode("utf-8"))
+        if payload_bytes > cls.MAX_PAYLOAD_BYTES:
+            raise PayloadTooLargeError(
+                f"Payload size ({payload_bytes} bytes) exceeds maximum limit of {cls.MAX_PAYLOAD_BYTES} bytes."
+            )
+
         with transaction.atomic():
+            # 2. Check idempotency key first
             if idempotency_key:
                 existing_job = (
                     Job.objects.select_for_update()
@@ -59,7 +79,6 @@ class JobService:
                 )
 
                 if existing_job:
-                    # Verify that the reused key matches the original job parameters
                     if (
                         existing_job.job_type != job_type
                         or existing_job.payload != clean_payload
@@ -69,7 +88,26 @@ class JobService:
                         )
                     return JobCreationResult(job=existing_job, is_created=False)
 
+            # 3. Enforce active job quota for authenticated user
+            if user:
+                active_job_count = Job.objects.filter(
+                    user=user,
+                    status__in=(
+                        JobStatus.PENDING,
+                        JobStatus.CLAIMED,
+                        JobStatus.RUNNING,
+                        JobStatus.RETRYING,
+                    ),
+                ).count()
+
+                if active_job_count >= max_active_jobs:
+                    raise QuotaExceededError(
+                        f"Active job quota exceeded. You currently have {active_job_count} active jobs (maximum allowed: {max_active_jobs})."
+                    )
+
+            # 4. Insert new job
             job = Job.objects.create(
+                user=user,
                 job_type=job_type,
                 payload=clean_payload,
                 priority=priority,
@@ -81,13 +119,16 @@ class JobService:
             return JobCreationResult(job=job, is_created=True)
 
     @staticmethod
-    def cancel_job(job_id: Any) -> Job:
+    def cancel_job(job_id: Any, user=None) -> Job:
         """
-        Cancels an eligible job (in PENDING or RETRYING status).
-        Raises JobCancellationError if the job is already terminal or currently running.
+        Cancels an eligible job, verifying user ownership if a user is provided.
         """
         with transaction.atomic():
-            job = Job.objects.select_for_update().filter(id=job_id).first()
+            query = Job.objects.select_for_update().filter(id=job_id)
+            if user and not user.is_staff:
+                query = query.filter(user=user)
+
+            job = query.first()
             if not job:
                 raise Job.DoesNotExist(f"Job with ID {job_id} does not exist.")
 

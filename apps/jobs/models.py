@@ -1,6 +1,7 @@
 import uuid
 from typing import ClassVar
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -14,7 +15,6 @@ class Job(models.Model):
     and retry parameters.
     """
 
-    # Allowed state machine transitions: current_status -> set of allowed next_statuses
     VALID_TRANSITIONS: ClassVar[dict[str, set[str]]] = {
         JobStatus.PENDING: {JobStatus.CLAIMED, JobStatus.CANCELLED},
         JobStatus.CLAIMED: {JobStatus.RUNNING, JobStatus.PENDING},
@@ -25,7 +25,6 @@ class Job(models.Model):
             JobStatus.EXHAUSTED,
         },
         JobStatus.RETRYING: {JobStatus.CLAIMED, JobStatus.CANCELLED},
-        # Terminal states have no valid subsequent transitions
         JobStatus.COMPLETED: set(),
         JobStatus.FAILED: set(),
         JobStatus.CANCELLED: set(),
@@ -33,6 +32,14 @@ class Job(models.Model):
     }
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="jobs",
+        help_text="The tenant/user who owns this job",
+    )
     job_type = models.CharField(
         max_length=255,
         db_index=True,
@@ -60,7 +67,6 @@ class Job(models.Model):
         help_text="Higher values indicate higher execution priority",
     )
 
-    # Retry and attempt configuration
     attempt_count = models.PositiveIntegerField(
         default=0,
         help_text="Number of execution attempts initiated so far",
@@ -75,7 +81,6 @@ class Job(models.Model):
         help_text="Timestamp when a RETRYING job becomes eligible for claiming",
     )
 
-    # Worker lease and claiming state
     claimed_by = models.CharField(
         max_length=128,
         null=True,
@@ -88,7 +93,6 @@ class Job(models.Model):
         help_text="Timestamp after which an active lease is considered abandoned",
     )
 
-    # Submission deduplication
     idempotency_key = models.CharField(
         max_length=255,
         null=True,
@@ -97,11 +101,9 @@ class Job(models.Model):
         help_text="Optional client-provided deduplication key",
     )
 
-    # Error details from the most recent failure
     error_message = models.TextField(null=True, blank=True)
     error_traceback = models.TextField(null=True, blank=True)
 
-    # Timestamps
     scheduled_at = models.DateTimeField(
         default=timezone.now,
         help_text="Earliest time this job is eligible for execution",
@@ -136,15 +138,17 @@ class Job(models.Model):
             ),
         )
         indexes = (
-            # High-performance index for worker polling queries
             models.Index(
                 fields=["status", "scheduled_at", "-priority", "created_at"],
                 name="idx_job_polling",
             ),
-            # Index for the Reaper finding zombie/abandoned running leases
             models.Index(
                 fields=["status", "lease_expires_at"],
                 name="idx_job_reaper",
+            ),
+            models.Index(
+                fields=["user", "status"],
+                name="idx_job_user_status",
             ),
         )
 
@@ -153,7 +157,6 @@ class Job(models.Model):
 
     @property
     def is_terminal(self) -> bool:
-        """Returns True if the job has completed, failed, cancelled, or exhausted."""
         return self.status in {
             JobStatus.COMPLETED,
             JobStatus.FAILED,
@@ -162,15 +165,10 @@ class Job(models.Model):
         }
 
     def can_transition_to(self, target_status: str) -> bool:
-        """Determines if transitioning to target_status is permitted by the state graph."""
         allowed = self.VALID_TRANSITIONS.get(self.status, set())
         return target_status in allowed
 
     def transition_to(self, target_status: str) -> None:
-        """
-        Transitions the job to a new status if valid.
-        Raises ValidationError if the transition violates the state graph.
-        """
         if not self.can_transition_to(target_status):
             raise ValidationError(
                 f"Illegal state transition from {self.status} to {target_status}."
@@ -181,11 +179,6 @@ class Job(models.Model):
 
 
 class JobAttempt(models.Model):
-    """
-    Historical audit record of an individual execution attempt for a Job.
-    Created every time a worker runs or attempts to run a job.
-    """
-
     id = models.BigAutoField(primary_key=True)
     job = models.ForeignKey(
         Job,
