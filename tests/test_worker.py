@@ -119,8 +119,7 @@ def test_concurrent_claiming_prevents_duplicate_claims():
     # Run 3 workers concurrently across threads
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
-            executor.submit(claim_task, f"concurrent-worker-{i}")
-            for i in range(3)
+            executor.submit(claim_task, f"concurrent-worker-{i}") for i in range(3)
         ]
         for f in futures:
             f.result()

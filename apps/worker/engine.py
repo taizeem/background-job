@@ -115,7 +115,9 @@ class WorkerEngine:
         )
 
         try:
-            logger.info("Worker %s executing Job %s (%s)", self.worker_id, job.id, job.job_type)
+            logger.info(
+                "Worker %s executing Job %s (%s)", self.worker_id, job.id, job.job_type
+            )
 
             # Simulated execution payload processing for Phase 4
             # (Phase 5 introduces the full dynamic handler registry)
@@ -158,7 +160,7 @@ class WorkerEngine:
 
         except Exception as exc:
             elapsed_ms = (time.monotonic() - start_time) * 1000
-            logger.exception("Worker %s encountered error on Job %s: %s", self.worker_id, job.id, exc)
+            logger.exception("Worker %s encountered error on Job %s", self.worker_id, job.id)
 
             with transaction.atomic():
                 job.transition_to(JobStatus.FAILED)
@@ -189,7 +191,11 @@ class WorkerEngine:
         Starts the worker polling loop.
         Returns the total number of jobs processed.
         """
-        logger.info("Worker %s started (poll_interval=%.2fs)", self.worker_id, self.options.poll_interval)
+        logger.info(
+            "Worker %s started (poll_interval=%.2fs)",
+            self.worker_id,
+            self.options.poll_interval,
+        )
         self.register_signal_handlers()
         jobs_processed = 0
 
@@ -204,9 +210,15 @@ class WorkerEngine:
                 jobs_processed += 1
             else:
                 if self.options.burst:
-                    logger.info("Worker %s burst complete: no more ready jobs.", self.worker_id)
+                    logger.info(
+                        "Worker %s burst complete: no more ready jobs.", self.worker_id
+                    )
                     break
                 time.sleep(self.options.poll_interval)
 
-        logger.info("Worker %s stopped. Total jobs processed: %d", self.worker_id, jobs_processed)
+        logger.info(
+            "Worker %s stopped. Total jobs processed: %d",
+            self.worker_id,
+            jobs_processed,
+        )
         return jobs_processed
