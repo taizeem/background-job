@@ -3,7 +3,9 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils import timezone
 
+from apps.jobs.constants import JobStatus
 from apps.jobs.models import Job
 from apps.jobs.serializers import (
     JobCreateSerializer,
@@ -37,7 +39,6 @@ class JobListCreateView(APIView):
     def get(self, request: Request) -> Response:
         queryset = Job.objects.all().order_by("-created_at")
 
-        # Query filters
         status_param = request.query_params.get("status")
         if status_param:
             queryset = queryset.filter(status=status_param.upper())
@@ -122,6 +123,53 @@ class JobCancelView(APIView):
                 {"error": str(exc)},
                 status=status.HTTP_409_CONFLICT,
             )
+
+        serializer = JobDetailSerializer(job)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class JobRetryView(APIView):
+    """
+    POST /api/v1/jobs/<uuid:job_id>/retry/ -> Manually re-queues an EXHAUSTED or FAILED job.
+    Resets attempt_count and sets status=PENDING.
+    """
+
+    authentication_classes = ()
+    permission_classes = ()
+
+    def post(self, request: Request, job_id: str) -> Response:
+        job = Job.objects.filter(id=job_id).first()
+        if not job:
+            return Response(
+                {"error": f"Job with ID '{job_id}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if job.status not in (JobStatus.EXHAUSTED, JobStatus.FAILED):
+            return Response(
+                {"error": f"Only EXHAUSTED or FAILED jobs can be revived. Current status is '{job.status}'."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        job.status = JobStatus.PENDING
+        job.attempt_count = 0
+        job.error_message = None
+        job.error_traceback = None
+        job.completed_at = None
+        job.scheduled_at = timezone.now()
+        job.next_retry_at = None
+        job.save(
+            update_fields=[
+                "status",
+                "attempt_count",
+                "error_message",
+                "error_traceback",
+                "completed_at",
+                "scheduled_at",
+                "next_retry_at",
+                "updated_at",
+            ]
+        )
 
         serializer = JobDetailSerializer(job)
         return Response(serializer.data, status=status.HTTP_200_OK)

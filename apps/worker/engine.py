@@ -13,6 +13,7 @@ from django.utils import timezone
 from apps.jobs.constants import AttemptStatus, JobStatus
 from apps.jobs.models import Job, JobAttempt
 from apps.jobs.registry import get_handler
+from apps.jobs.services.retry_service import RetryService
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,9 @@ class WorkerEngine:
 
     def execute_job(self, job: Job) -> bool:
         """
-        Dispatches a claimed job to its registered handler and records results or errors.
-        Runs entirely outside of the claiming transaction.
+        Dispatches a claimed job to its registered handler.
+        On success, marks COMPLETED.
+        On failure, delegates to RetryService for retry scheduling or DLQ routing.
         """
         start_time = time.monotonic()
         attempt_number = job.attempt_count + 1
@@ -115,20 +117,13 @@ class WorkerEngine:
         )
 
         try:
-            logger.info(
-                "Worker %s executing Job %s (%s)", self.worker_id, job.id, job.job_type
-            )
+            logger.info("Worker %s executing Job %s (%s)", self.worker_id, job.id, job.job_type)
 
-            # Resolve handler from registry
             handler = get_handler(job.job_type)
             if not handler:
-                raise ValueError(
-                    f"No handler registered for job_type '{job.job_type}'."
-                )
+                raise ValueError(f"No handler registered for job_type '{job.job_type}'.")
 
-            # Execute the handler with payload
             result_data = handler(job.payload)
-
             elapsed_ms = (time.monotonic() - start_time) * 1000
 
             # 2. Record SUCCESS and transition to COMPLETED
@@ -164,35 +159,24 @@ class WorkerEngine:
         except Exception as exc:
             elapsed_ms = (time.monotonic() - start_time) * 1000
             stack_trace = traceback.format_exc()
-            logger.exception(
-                "Worker %s encountered error on Job %s", self.worker_id, job.id
-            )
+            logger.exception("Worker %s encountered error on Job %s", self.worker_id, job.id)
 
-            # 3. Record FAILURE and transition to FAILED
+            # Record failure in attempt log
+            attempt.status = AttemptStatus.FAILURE
+            attempt.duration_ms = elapsed_ms
+            attempt.error_message = str(exc)
+            attempt.error_traceback = stack_trace
+            attempt.completed_at = timezone.now()
+            attempt.save()
+
+            # Delegate lifecycle decision to RetryService
             with transaction.atomic():
-                job.transition_to(JobStatus.FAILED)
-                job.error_message = str(exc)
-                job.error_traceback = stack_trace
-                job.claimed_by = None
-                job.lease_expires_at = None
-                job.save(
-                    update_fields=[
-                        "status",
-                        "error_message",
-                        "error_traceback",
-                        "claimed_by",
-                        "lease_expires_at",
-                        "completed_at",
-                        "updated_at",
-                    ]
+                RetryService.handle_failure(
+                    job=job,
+                    attempt=attempt,
+                    exc=exc,
+                    stack_trace=stack_trace,
                 )
-
-                attempt.status = AttemptStatus.FAILURE
-                attempt.duration_ms = elapsed_ms
-                attempt.error_message = str(exc)
-                attempt.error_traceback = stack_trace
-                attempt.completed_at = timezone.now()
-                attempt.save()
 
             return False
 
@@ -220,9 +204,7 @@ class WorkerEngine:
                 jobs_processed += 1
             else:
                 if self.options.burst:
-                    logger.info(
-                        "Worker %s burst complete: no more ready jobs.", self.worker_id
-                    )
+                    logger.info("Worker %s burst complete: no more ready jobs.", self.worker_id)
                     break
                 time.sleep(self.options.poll_interval)
 

@@ -1,10 +1,11 @@
 """
-Email dispatch job handler.
+Email dispatch job handler with error classification support.
 """
 
 import uuid
 from typing import Any
 
+from apps.jobs.exceptions import NonRetryableJobError, RetryableJobError
 from apps.jobs.registry import register_job
 
 
@@ -15,16 +16,18 @@ def send_email(payload: dict[str, Any]) -> dict[str, Any]:
     Payload expectations:
     - to: str (recipient email address)
     - subject: str (email subject line)
-    - body: str (email content)
+    - simulate_timeout: bool (optional: triggers RetryableJobError)
     """
     recipient = payload.get("to") or payload.get("recipient")
     if not recipient:
-        raise ValueError(
-            "Payload missing required recipient email ('to' or 'recipient')."
-        )
+        raise NonRetryableJobError("Payload missing required recipient email ('to' or 'recipient').")
 
     if "@" not in recipient:
-        raise ValueError(f"Invalid email address format: '{recipient}'.")
+        raise NonRetryableJobError(f"Invalid email address format: '{recipient}'.")
+
+    # Simulate transient network / rate-limiting outage if requested
+    if payload.get("simulate_timeout"):
+        raise RetryableJobError("Connection to downstream SMTP server timed out after 5000ms.")
 
     subject = payload.get("subject", "(No Subject)")
 
