@@ -140,7 +140,9 @@ class RetryService:
 
         # Max attempts exceeded: move to EXHAUSTED (Dead-Letter state)
         job.transition_to(JobStatus.EXHAUSTED)
-        job.error_message = f"Max attempts ({job.max_attempts}) exhausted. Last error: {exc}"
+        job.error_message = (
+            f"Max attempts ({job.max_attempts}) exhausted. Last error: {exc}"
+        )
         job.error_traceback = stack_trace
         job.claimed_by = None
         job.lease_expires_at = None

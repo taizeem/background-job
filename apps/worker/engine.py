@@ -117,11 +117,15 @@ class WorkerEngine:
         )
 
         try:
-            logger.info("Worker %s executing Job %s (%s)", self.worker_id, job.id, job.job_type)
+            logger.info(
+                "Worker %s executing Job %s (%s)", self.worker_id, job.id, job.job_type
+            )
 
             handler = get_handler(job.job_type)
             if not handler:
-                raise ValueError(f"No handler registered for job_type '{job.job_type}'.")
+                raise ValueError(
+                    f"No handler registered for job_type '{job.job_type}'."
+                )
 
             result_data = handler(job.payload)
             elapsed_ms = (time.monotonic() - start_time) * 1000
@@ -159,7 +163,9 @@ class WorkerEngine:
         except Exception as exc:
             elapsed_ms = (time.monotonic() - start_time) * 1000
             stack_trace = traceback.format_exc()
-            logger.exception("Worker %s encountered error on Job %s", self.worker_id, job.id)
+            logger.exception(
+                "Worker %s encountered error on Job %s", self.worker_id, job.id
+            )
 
             # Record failure in attempt log
             attempt.status = AttemptStatus.FAILURE
@@ -204,7 +210,9 @@ class WorkerEngine:
                 jobs_processed += 1
             else:
                 if self.options.burst:
-                    logger.info("Worker %s burst complete: no more ready jobs.", self.worker_id)
+                    logger.info(
+                        "Worker %s burst complete: no more ready jobs.", self.worker_id
+                    )
                     break
                 time.sleep(self.options.poll_interval)
 

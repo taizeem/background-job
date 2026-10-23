@@ -1,6 +1,7 @@
 import pytest
 
 from apps.jobs.constants import AttemptStatus, JobStatus
+from apps.jobs.exceptions import NonRetryableJobError
 from apps.jobs.handlers.email import send_email
 from apps.jobs.handlers.files import process_file
 from apps.jobs.handlers.reports import generate_report
@@ -40,8 +41,8 @@ def test_email_handler_success():
 
 
 def test_email_handler_missing_recipient_raises_error():
-    """Verifies email.send requires a recipient."""
-    with pytest.raises(ValueError, match="missing required recipient"):
+    """Verifies email.send requires a recipient and raises NonRetryableJobError."""
+    with pytest.raises(NonRetryableJobError, match="missing required recipient"):
         send_email({"subject": "Hello"})
 
 
@@ -52,7 +53,7 @@ def test_files_handler_success():
 
     assert result["filename"] == "sample.txt"
     assert result["word_count"] == 9
-    assert len(result["sha256"]) == 64  # Standard SHA-256 hex length
+    assert len(result["sha256"]) == 64
 
 
 @pytest.mark.django_db
@@ -74,7 +75,6 @@ def test_worker_executes_real_handler_and_stores_result():
     assert job.result["report_name"] == "Financial-Summary-2026-October.csv"
     assert job.result["format"] == "csv"
 
-    # Verify attempt log
     attempt = JobAttempt.objects.filter(job=job).first()
     assert attempt.status == AttemptStatus.SUCCESS
     assert attempt.duration_ms is not None
@@ -84,7 +84,6 @@ def test_worker_executes_real_handler_and_stores_result():
 @pytest.mark.django_db
 def test_worker_captures_error_and_traceback():
     """Verifies that when a handler raises an exception, the worker captures the traceback."""
-    # Invalid email without @
     job = Job.objects.create(
         job_type="email.send",
         payload={"to": "not-an-email"},
@@ -101,7 +100,6 @@ def test_worker_captures_error_and_traceback():
     assert "Invalid email address format" in job.error_message
     assert "Traceback (most recent call last):" in job.error_traceback
 
-    # Verify attempt log captured the traceback
     attempt = JobAttempt.objects.filter(job=job).first()
     assert attempt.status == AttemptStatus.FAILURE
     assert "Invalid email address format" in attempt.error_message

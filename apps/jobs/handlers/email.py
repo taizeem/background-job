@@ -20,14 +20,18 @@ def send_email(payload: dict[str, Any]) -> dict[str, Any]:
     """
     recipient = payload.get("to") or payload.get("recipient")
     if not recipient:
-        raise NonRetryableJobError("Payload missing required recipient email ('to' or 'recipient').")
+        raise NonRetryableJobError(
+            "Payload missing required recipient email ('to' or 'recipient')."
+        )
 
     if "@" not in recipient:
         raise NonRetryableJobError(f"Invalid email address format: '{recipient}'.")
 
     # Simulate transient network / rate-limiting outage if requested
     if payload.get("simulate_timeout"):
-        raise RetryableJobError("Connection to downstream SMTP server timed out after 5000ms.")
+        raise RetryableJobError(
+            "Connection to downstream SMTP server timed out after 5000ms."
+        )
 
     subject = payload.get("subject", "(No Subject)")
 

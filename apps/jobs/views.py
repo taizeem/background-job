@@ -1,9 +1,9 @@
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.utils import timezone
 
 from apps.jobs.constants import JobStatus
 from apps.jobs.models import Job
@@ -147,7 +147,9 @@ class JobRetryView(APIView):
 
         if job.status not in (JobStatus.EXHAUSTED, JobStatus.FAILED):
             return Response(
-                {"error": f"Only EXHAUSTED or FAILED jobs can be revived. Current status is '{job.status}'."},
+                {
+                    "error": f"Only EXHAUSTED or FAILED jobs can be revived. Current status is '{job.status}'."
+                },
                 status=status.HTTP_409_CONFLICT,
             )
 
