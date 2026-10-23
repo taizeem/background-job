@@ -76,14 +76,22 @@ def test_submit_job_idempotency_conflict_returns_409(api_client: APIClient):
 
     api_client.post(
         url,
-        data={"job_type": "email.send", "payload": {"foo": "bar"}, "idempotency_key": key},
+        data={
+            "job_type": "email.send",
+            "payload": {"foo": "bar"},
+            "idempotency_key": key,
+        },
         format="json",
     )
 
     # Submit again with different payload
     res = api_client.post(
         url,
-        data={"job_type": "email.send", "payload": {"foo": "DIFFERENT"}, "idempotency_key": key},
+        data={
+            "job_type": "email.send",
+            "payload": {"foo": "DIFFERENT"},
+            "idempotency_key": key,
+        },
         format="json",
     )
 
@@ -120,8 +128,12 @@ def test_get_job_detail_not_found(api_client: APIClient):
 @pytest.mark.django_db
 def test_list_jobs_and_filter_by_status(api_client: APIClient, auth_user):
     """Verifies listing jobs with query param filtering for the owning user."""
-    Job.objects.create(user=auth_user, job_type="reports.generate", status=JobStatus.PENDING)
-    Job.objects.create(user=auth_user, job_type="email.send", status=JobStatus.COMPLETED)
+    Job.objects.create(
+        user=auth_user, job_type="reports.generate", status=JobStatus.PENDING
+    )
+    Job.objects.create(
+        user=auth_user, job_type="email.send", status=JobStatus.COMPLETED
+    )
 
     url = reverse("job-list-create")
 
@@ -137,7 +149,9 @@ def test_list_jobs_and_filter_by_status(api_client: APIClient, auth_user):
 @pytest.mark.django_db
 def test_cancel_job_endpoint(api_client: APIClient, auth_user):
     """Verifies POST /api/v1/jobs/<id>/cancel/ transitions the owner's job to CANCELLED."""
-    job = Job.objects.create(user=auth_user, job_type="files.process", status=JobStatus.PENDING)
+    job = Job.objects.create(
+        user=auth_user, job_type="files.process", status=JobStatus.PENDING
+    )
     url = reverse("job-cancel", kwargs={"job_id": job.id})
 
     response = api_client.post(url)

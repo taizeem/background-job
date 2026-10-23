@@ -29,7 +29,9 @@ def api_key_a(test_user):
 
 @pytest.fixture
 def api_key_b(other_user):
-    _, raw_key = ApiKey.generate(user=other_user, name="Tenant B Key", max_active_jobs=5)
+    _, raw_key = ApiKey.generate(
+        user=other_user, name="Tenant B Key", max_active_jobs=5
+    )
     return raw_key
 
 
@@ -71,7 +73,9 @@ def test_authenticated_submission_success(api_client: APIClient, api_key_a, test
 
 
 @pytest.mark.django_db
-def test_tenant_data_isolation(api_client: APIClient, api_key_a, api_key_b, test_user, other_user):
+def test_tenant_data_isolation(
+    api_client: APIClient, api_key_a, api_key_b, test_user, other_user
+):
     """
     Verifies that User A cannot see or access jobs belonging to User B.
     """

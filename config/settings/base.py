@@ -85,6 +85,8 @@ DATABASES = {
         "CONN_MAX_AGE": 60,  # Reuse database connections for up to 60 seconds
     }
 }
+# Redis configuration
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 AUTH_PASSWORD_VALIDATORS = [
     {

@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${DB_USER:-job_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-job_password}
     ports:
-      - "${DB_PORT:-5433}:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,6 +17,23 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: job_platform_redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_data:
     name: job_platform_postgres_data
+  redis_data:
+    name: job_platform_redis_data

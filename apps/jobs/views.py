@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.authentication import ApiKeyAuthentication
+from apps.accounts.throttling import RedisRateThrottle
 from apps.jobs.constants import JobStatus
 from apps.jobs.models import Job
 from apps.jobs.serializers import (
@@ -20,6 +21,7 @@ from apps.jobs.services.job_service import (
     PayloadTooLargeError,
     QuotaExceededError,
 )
+from apps.jobs.services.metrics_service import MetricsService
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -28,17 +30,30 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 100
 
 
-class JobListCreateView(APIView):
+class JobMetricsView(APIView):
     """
-    GET  /api/v1/jobs/ -> List jobs owned by the authenticated user.
-    POST /api/v1/jobs/ -> Submit a new background job with quota enforcement.
+    GET /api/v1/jobs/metrics/ -> Sub-millisecond queue telemetry cached in Redis.
     """
 
     authentication_classes = (ApiKeyAuthentication,)
     permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request: Request) -> Response:
-        # Tenant isolation: users only see their own jobs unless staff
+        metrics = MetricsService.get_queue_metrics()
+        return Response(metrics, status=status.HTTP_200_OK)
+
+
+class JobListCreateView(APIView):
+    """
+    GET  /api/v1/jobs/ -> List jobs owned by the authenticated user.
+    POST /api/v1/jobs/ -> Submit a new background job with Redis rate limiting.
+    """
+
+    authentication_classes = (ApiKeyAuthentication,)
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_classes = (RedisRateThrottle,)
+
+    def get(self, request: Request) -> Response:
         queryset = Job.objects.all().order_by("-created_at")
         if not request.user.is_staff:
             queryset = queryset.filter(user=request.user)
@@ -65,7 +80,7 @@ class JobListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
 
         validated_data = serializer.validated_data
-        api_key = request.auth  # The ApiKey instance from authentication backend
+        api_key = request.auth
         max_quota = api_key.max_active_jobs if api_key else 10
 
         try:

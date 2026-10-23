@@ -23,7 +23,11 @@ class ApiKeyAuthentication(authentication.BaseAuthentication):
             raw_key = request.META["HTTP_X_API_KEY"].strip()
         elif "HTTP_AUTHORIZATION" in request.META:
             auth_header = request.META["HTTP_AUTHORIZATION"].split()
-            if len(auth_header) == 2 and auth_header[0].lower() in ("bearer", "token", "apikey"):
+            if len(auth_header) == 2 and auth_header[0].lower() in (
+                "bearer",
+                "token",
+                "apikey",
+            ):
                 raw_key = auth_header[1].strip()
 
         if not raw_key:
