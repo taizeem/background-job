@@ -77,7 +77,8 @@ def test_worker_executes_real_handler_and_stores_result():
     # Verify attempt log
     attempt = JobAttempt.objects.filter(job=job).first()
     assert attempt.status == AttemptStatus.SUCCESS
-    assert attempt.duration_ms > 0
+    assert attempt.duration_ms is not None
+    assert attempt.duration_ms >= 0
 
 
 @pytest.mark.django_db

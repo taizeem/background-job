@@ -61,7 +61,10 @@ def test_claim_ignores_future_scheduled_jobs():
 @pytest.mark.django_db
 def test_execute_job_completes_and_creates_attempt():
     """Verifies that executing a job transitions it to COMPLETED and creates a JobAttempt."""
-    job = Job.objects.create(job_type="reports.generate", payload={"foo": "bar"})
+    job = Job.objects.create(
+        job_type="reports.generate",
+        payload={"year": 2026, "month": "October", "format": "json"},
+    )
     job.transition_to(JobStatus.CLAIMED)
     job.save()
 
@@ -81,13 +84,20 @@ def test_execute_job_completes_and_creates_attempt():
     assert attempt.attempt_number == 1
     assert attempt.status == AttemptStatus.SUCCESS
     assert attempt.duration_ms is not None
+    assert attempt.duration_ms >= 0
 
 
 @pytest.mark.django_db
 def test_worker_burst_mode():
     """Verifies that a worker in burst mode processes all ready jobs and exits."""
-    Job.objects.create(job_type="email.send")
-    Job.objects.create(job_type="reports.generate")
+    Job.objects.create(
+        job_type="email.send",
+        payload={"to": "dev@company.com", "subject": "Test"},
+    )
+    Job.objects.create(
+        job_type="reports.generate",
+        payload={"year": 2026, "month": "All", "format": "json"},
+    )
 
     engine = WorkerEngine(options=WorkerOptions(worker_id="burst-worker", burst=True))
     total_processed = engine.run()
@@ -110,25 +120,22 @@ def test_concurrent_claiming_prevents_duplicate_claims():
 
     def claim_task(worker_name: str):
         from django.db import connections
-
         try:
             connections.close_all()
             job = WorkerEngine.claim_next_job(worker_id=worker_name)
             if job:
                 claimed_results.append((worker_name, job.id))
         finally:
-            # Explicitly close this thread's connection when finished
             connections.close_all()
 
-    # Run 3 workers concurrently across threads
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
-            executor.submit(claim_task, f"concurrent-worker-{i}") for i in range(3)
+            executor.submit(claim_task, f"concurrent-worker-{i}")
+            for i in range(3)
         ]
         for f in futures:
             f.result()
 
-    # Verify each job was claimed exactly once
     claimed_job_ids = [job_id for _, job_id in claimed_results]
     assert len(claimed_job_ids) == 3
     assert set(claimed_job_ids) == set(job_ids)
