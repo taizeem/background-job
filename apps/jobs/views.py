@@ -1,4 +1,5 @@
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
@@ -38,6 +39,12 @@ class JobMetricsView(APIView):
     authentication_classes = (ApiKeyAuthentication,)
     permission_classes = (permissions.IsAuthenticated,)
 
+    @extend_schema(
+        summary="Get Queue & Worker Telemetry",
+        description="Returns queue depths, active worker count, and attempt latency metrics.",
+        responses={200: OpenApiResponse(description="Platform telemetry metrics")},
+        tags=["Telemetry"],
+    )
     def get(self, request: Request) -> Response:
         metrics = MetricsService.get_queue_metrics()
         return Response(metrics, status=status.HTTP_200_OK)
@@ -53,6 +60,32 @@ class JobListCreateView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
     throttle_classes = (RedisRateThrottle,)
 
+    @extend_schema(
+        summary="List Jobs",
+        description="Lists jobs belonging to the authenticated tenant with optional filtering.",
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                description="Filter by job status",
+                required=False,
+                type=str,
+            ),
+            OpenApiParameter(
+                name="job_type",
+                description="Filter by job_type",
+                required=False,
+                type=str,
+            ),
+            OpenApiParameter(
+                name="priority",
+                description="Filter by integer priority",
+                required=False,
+                type=int,
+            ),
+        ],
+        responses={200: JobListSerializer(many=True)},
+        tags=["Jobs"],
+    )
     def get(self, request: Request) -> Response:
         queryset = Job.objects.all().order_by("-created_at")
         if not request.user.is_staff:
@@ -75,6 +108,19 @@ class JobListCreateView(APIView):
         serializer = JobListSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
+    @extend_schema(
+        summary="Submit a Background Job",
+        description="Enqueues a new background job with optional idempotency key and future schedule.",
+        request=JobCreateSerializer,
+        responses={
+            201: JobDetailSerializer,
+            200: JobDetailSerializer,
+            409: OpenApiResponse(description="Idempotency key conflict"),
+            413: OpenApiResponse(description="Payload exceeds 64 KB limit"),
+            429: OpenApiResponse(description="Active job quota or rate limit exceeded"),
+        },
+        tags=["Jobs"],
+    )
     def post(self, request: Request) -> Response:
         serializer = JobCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -120,6 +166,15 @@ class JobDetailView(APIView):
     authentication_classes = (ApiKeyAuthentication,)
     permission_classes = (permissions.IsAuthenticated,)
 
+    @extend_schema(
+        summary="Get Job Details",
+        description="Retrieves complete job state, output result, and execution attempt history.",
+        responses={
+            200: JobDetailSerializer,
+            404: OpenApiResponse(description="Job not found"),
+        },
+        tags=["Jobs"],
+    )
     def get(self, request: Request, job_id: str) -> Response:
         queryset = Job.objects.filter(id=job_id)
         if not request.user.is_staff:
@@ -143,6 +198,19 @@ class JobCancelView(APIView):
     authentication_classes = (ApiKeyAuthentication,)
     permission_classes = (permissions.IsAuthenticated,)
 
+    @extend_schema(
+        summary="Cancel a Job",
+        description="Cancels a PENDING or RETRYING job. Running or terminal jobs cannot be cancelled.",
+        request=None,
+        responses={
+            200: JobDetailSerializer,
+            404: OpenApiResponse(description="Job not found"),
+            409: OpenApiResponse(
+                description="Job is running or already in a terminal state"
+            ),
+        },
+        tags=["Jobs"],
+    )
     def post(self, request: Request, job_id: str) -> Response:
         try:
             job = JobService.cancel_job(job_id=job_id, user=request.user)
@@ -169,6 +237,17 @@ class JobRetryView(APIView):
     authentication_classes = (ApiKeyAuthentication,)
     permission_classes = (permissions.IsAuthenticated,)
 
+    @extend_schema(
+        summary="Replay an Exhausted or Failed Job",
+        description="Resets attempt_count to 0 and transitions an EXHAUSTED or FAILED job back to PENDING.",
+        request=None,
+        responses={
+            200: JobDetailSerializer,
+            404: OpenApiResponse(description="Job not found"),
+            409: OpenApiResponse(description="Job is not in EXHAUSTED or FAILED state"),
+        },
+        tags=["Jobs"],
+    )
     def post(self, request: Request, job_id: str) -> Response:
         queryset = Job.objects.filter(id=job_id)
         if not request.user.is_staff:
