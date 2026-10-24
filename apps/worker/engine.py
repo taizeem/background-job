@@ -9,7 +9,9 @@ from typing import Any
 
 from django.db import transaction
 from django.utils import timezone
+from redis.exceptions import RedisError
 
+from apps.core.redis import get_redis_client
 from apps.jobs.constants import AttemptStatus, JobStatus
 from apps.jobs.models import Job, JobAttempt
 from apps.jobs.registry import get_handler
@@ -33,6 +35,8 @@ class WorkerEngine:
     Dedicated background worker process that claims and executes jobs from PostgreSQL.
     """
 
+    HEARTBEAT_TTL_SECONDS: int = 30
+
     def __init__(self, options: WorkerOptions | None = None) -> None:
         self.options = options or WorkerOptions()
         self.worker_id = self.options.worker_id or f"worker-{uuid.uuid4().hex[:8]}"
@@ -50,6 +54,42 @@ class WorkerEngine:
             signum,
         )
         self.should_stop = True
+
+    def send_heartbeat(self) -> None:
+        """Records an ephemeral worker heartbeat in Redis with a 30s TTL."""
+        try:
+            client = get_redis_client()
+            client.setex(
+                f"worker:heartbeat:{self.worker_id}",
+                self.HEARTBEAT_TTL_SECONDS,
+                timezone.now().isoformat(),
+            )
+        except (RedisError, OSError) as exc:
+            logger.debug(
+                "Worker %s could not publish Redis heartbeat: %s", self.worker_id, exc
+            )
+
+    @staticmethod
+    def renew_lease(
+        job: Job, worker_id: str, lease_duration_seconds: int = 300
+    ) -> bool:
+        """
+        Extends the lease_expires_at timestamp for a job currently owned by worker_id.
+        Returns True if the lease was extended, False if ownership was lost.
+        """
+        new_expiry = timezone.now() + timedelta(seconds=lease_duration_seconds)
+        updated_rows = Job.objects.filter(
+            id=job.id,
+            claimed_by=worker_id,
+            status__in=(JobStatus.CLAIMED, JobStatus.RUNNING),
+        ).update(
+            lease_expires_at=new_expiry,
+            updated_at=timezone.now(),
+        )
+        if updated_rows > 0:
+            job.lease_expires_at = new_expiry
+            return True
+        return False
 
     @staticmethod
     def claim_next_job(worker_id: str, lease_duration_seconds: int = 300) -> Job | None:
@@ -167,7 +207,6 @@ class WorkerEngine:
                 "Worker %s encountered error on Job %s", self.worker_id, job.id
             )
 
-            # Record failure in attempt log
             attempt.status = AttemptStatus.FAILURE
             attempt.duration_ms = elapsed_ms
             attempt.error_message = str(exc)
@@ -175,7 +214,6 @@ class WorkerEngine:
             attempt.completed_at = timezone.now()
             attempt.save()
 
-            # Delegate lifecycle decision to RetryService
             with transaction.atomic():
                 RetryService.handle_failure(
                     job=job,
@@ -200,6 +238,7 @@ class WorkerEngine:
         jobs_processed = 0
 
         while not self.should_stop:
+            self.send_heartbeat()
             job = self.claim_next_job(
                 worker_id=self.worker_id,
                 lease_duration_seconds=self.options.lease_duration_seconds,

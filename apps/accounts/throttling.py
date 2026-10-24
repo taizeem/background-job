@@ -24,7 +24,9 @@ class RedisRateThrottle(throttling.BaseThrottle):
     rate_limit: int = 60
     window_seconds: int = 60
 
-    def __init__(self, rate_limit: int | None = None, window_seconds: int | None = None):
+    def __init__(
+        self, rate_limit: int | None = None, window_seconds: int | None = None
+    ):
         if rate_limit:
             self.rate_limit = rate_limit
         if window_seconds:
@@ -60,7 +62,9 @@ class RedisRateThrottle(throttling.BaseThrottle):
                 oldest = client.zrange(redis_key, 0, 0, withscores=True)
                 if oldest:
                     oldest_time = oldest[0][1]
-                    self.retry_after = max(1, int(oldest_time + self.window_seconds - now))
+                    self.retry_after = max(
+                        1, int(oldest_time + self.window_seconds - now)
+                    )
                 else:
                     self.retry_after = self.window_seconds
 

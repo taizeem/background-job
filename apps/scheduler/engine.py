@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.jobs.services.job_service import JobService
 from apps.scheduler.models import PeriodicTask
+from apps.worker.reaper import ReaperService
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +18,14 @@ logger = logging.getLogger(__name__)
 class SchedulerOptions:
     """Configuration options for a SchedulerEngine instance."""
 
-    poll_interval: float = 1.0  # Seconds to wait between schedule sweeps
-    burst: bool = False  # If True, process due tasks once and exit
+    poll_interval: float = 1.0
+    burst: bool = False
 
 
 class SchedulerEngine:
     """
-    Dedicated scheduler process that discovers due PeriodicTasks and enqueues
-    them into the primary PostgreSQL job queue.
+    Dedicated scheduler process that discovers due PeriodicTasks and sweeps
+    for expired worker leases.
     """
 
     def __init__(self, options: SchedulerOptions | None = None) -> None:
@@ -44,12 +45,10 @@ class SchedulerEngine:
         """
         Discovers all active PeriodicTasks where next_run_at <= NOW().
         Enqueues a Job for each task using an atomic transaction and deterministic idempotency key.
-        Returns the number of jobs enqueued.
         """
         now = timezone.now()
         enqueued_count = 0
 
-        # Retrieve tasks eligible for execution
         with transaction.atomic():
             due_tasks = list(
                 PeriodicTask.objects.select_for_update(skip_locked=True)
@@ -59,10 +58,8 @@ class SchedulerEngine:
 
             for task in due_tasks:
                 scheduled_tick = task.next_run_at
-                # Deterministic idempotency key: prevents duplicate enqueueing across replicas/restarts
                 idempotency_key = f"periodic-{task.name}-{scheduled_tick.isoformat()}"
 
-                # Enqueue the job into the main PostgreSQL queue
                 JobService.create_job(
                     job_type=task.job_type,
                     payload=task.payload,
@@ -71,7 +68,6 @@ class SchedulerEngine:
                     idempotency_key=idempotency_key,
                 )
 
-                # Update PeriodicTask timestamps
                 task.last_run_at = now
                 task.total_run_count += 1
                 task.next_run_at = task.calculate_next_run(from_time=now)
@@ -85,7 +81,8 @@ class SchedulerEngine:
                 )
                 enqueued_count += 1
                 print(
-                    f"[SCHEDULER] Enqueued periodic task '{task.name}' -> Next execution at {task.next_run_at.strftime('%H:%M:%S UTC')}"
+                    f"[SCHEDULER] Enqueued periodic task '{task.name}' -> "
+                    f"Next execution at {task.next_run_at.strftime('%H:%M:%S UTC')}"
                 )
                 logger.info(
                     "Scheduler enqueued task '%s' (next run at %s)",
@@ -97,7 +94,7 @@ class SchedulerEngine:
 
     def run(self) -> int:
         """
-        Starts the continuous scheduling loop.
+        Starts the continuous scheduling and zombie lease reaping loop.
         """
         logger.info(
             "Scheduler engine started (poll_interval=%.2fs)",
@@ -108,6 +105,7 @@ class SchedulerEngine:
 
         while not self.should_stop:
             count = self.enqueue_due_tasks()
+            ReaperService.reap_expired_leases()
             total_enqueued += count
 
             if self.options.burst:
