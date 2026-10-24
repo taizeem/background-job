@@ -32,6 +32,83 @@ services:
       timeout: 3s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: job-platform:latest
+    container_name: job_platform_api
+    profiles: ["fullstack"]
+    restart: unless-stopped
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-docker-secret-key-change-in-prod}
+      DJANGO_DEBUG: "False"
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+      DJANGO_SESSION_COOKIE_SECURE: "False"
+      DJANGO_CSRF_COOKIE_SECURE: "False"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,api
+      DB_NAME: ${DB_NAME:-job_platform_dev}
+      DB_USER: ${DB_USER:-job_user}
+      DB_PASSWORD: ${DB_PASSWORD:-job_password}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/live/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    image: job-platform:latest
+    container_name: job_platform_worker
+    profiles: ["fullstack"]
+    restart: unless-stopped
+    command: ["uv", "run", "python", "manage.py", "run_worker", "--worker-id", "docker-worker-01"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-docker-secret-key-change-in-prod}
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DB_NAME: ${DB_NAME:-job_platform_dev}
+      DB_USER: ${DB_USER:-job_user}
+      DB_PASSWORD: ${DB_PASSWORD:-job_password}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    image: job-platform:latest
+    container_name: job_platform_scheduler
+    profiles: ["fullstack"]
+    restart: unless-stopped
+    command: ["uv", "run", "python", "manage.py", "run_scheduler"]
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-docker-secret-key-change-in-prod}
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DB_NAME: ${DB_NAME:-job_platform_dev}
+      DB_USER: ${DB_USER:-job_user}
+      DB_PASSWORD: ${DB_PASSWORD:-job_password}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
     name: job_platform_postgres_data

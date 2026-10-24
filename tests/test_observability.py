@@ -68,4 +68,3 @@ def test_openapi_schema_and_swagger_ui_endpoints(api_client: APIClient):
     docs_res = api_client.get(docs_url)
     assert docs_res.status_code == status.HTTP_200_OK
     assert b"swagger-ui" in docs_res.content
-    

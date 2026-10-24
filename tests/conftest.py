@@ -23,7 +23,9 @@ def clear_redis_between_tests():
 def auth_user(db):
     """Fixture providing a default test user."""
     User = get_user_model()
-    return User.objects.create_user(username="default_test_user", password="password123")
+    return User.objects.create_user(
+        username="default_test_user", password="password123"
+    )
 
 
 @pytest.fixture
