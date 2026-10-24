@@ -1,3 +1,4 @@
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import authentication, exceptions
 from rest_framework.request import Request
 
@@ -44,3 +45,20 @@ class ApiKeyAuthentication(authentication.BaseAuthentication):
             raise exceptions.AuthenticationFailed("Invalid or inactive API key.")
 
         return api_key.user, api_key
+
+
+class ApiKeyAuthenticationScheme(OpenApiAuthenticationExtension):
+    """
+    Instructs drf-spectacular how to document ApiKeyAuthentication in OpenAPI 3.0.
+    """
+
+    target_class = "apps.accounts.authentication.ApiKeyAuthentication"
+    name = "ApiKeyAuth"
+
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "Authenticate using your API key via the X-API-Key header.",
+        }

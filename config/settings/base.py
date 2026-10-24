@@ -119,6 +119,7 @@ REST_FRAMEWORK = {
 }
 
 # OpenAPI 3.0 & Swagger UI settings
+# OpenAPI 3.0 & Swagger UI settings
 SPECTACULAR_SETTINGS = {
     "TITLE": "Background Job Processing Platform API",
     "DESCRIPTION": (
@@ -127,16 +128,10 @@ SPECTACULAR_SETTINGS = {
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "APPEND_COMPONENTS": {
-        "securitySchemes": {
-            "ApiKeyAuth": {
-                "type": "apiKey",
-                "in": "header",
-                "name": "X-API-Key",
-            }
-        }
+    "ENUM_NAME_OVERRIDES": {
+        "JobStatusEnum": "apps.jobs.constants.JobStatus",
+        "AttemptStatusEnum": "apps.jobs.constants.AttemptStatus",
     },
-    "SECURITY": [{"ApiKeyAuth": []}],
 }
 
 # Structured Logging Configuration
