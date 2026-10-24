@@ -1,5 +1,6 @@
 import logging
 import signal
+import threading
 import time
 import traceback
 import uuid
@@ -43,9 +44,10 @@ class WorkerEngine:
         self.should_stop = False
 
     def register_signal_handlers(self) -> None:
-        """Registers handlers for SIGINT (Ctrl+C) and SIGTERM for graceful shutdown."""
-        signal.signal(signal.SIGINT, self._handle_shutdown_signal)
-        signal.signal(signal.SIGTERM, self._handle_shutdown_signal)
+        """Registers handlers for SIGINT (Ctrl+C) and SIGTERM when running in the main thread."""
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, self._handle_shutdown_signal)
+            signal.signal(signal.SIGTERM, self._handle_shutdown_signal)
 
     def _handle_shutdown_signal(self, signum: int, frame: Any) -> None:
         logger.info(

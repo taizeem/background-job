@@ -1,5 +1,6 @@
 import logging
 import signal
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -33,9 +34,10 @@ class SchedulerEngine:
         self.should_stop = False
 
     def register_signal_handlers(self) -> None:
-        """Captures termination signals for clean process exit."""
-        signal.signal(signal.SIGINT, self._handle_shutdown_signal)
-        signal.signal(signal.SIGTERM, self._handle_shutdown_signal)
+        """Captures termination signals for clean process exit when running in the main thread."""
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, self._handle_shutdown_signal)
+            signal.signal(signal.SIGTERM, self._handle_shutdown_signal)
 
     def _handle_shutdown_signal(self, signum: int, frame: Any) -> None:
         logger.info("Scheduler received shutdown signal (%s). Exiting...", signum)

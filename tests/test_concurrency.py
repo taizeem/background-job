@@ -45,7 +45,9 @@ def test_reaper_recovers_crashed_worker_job_to_retrying():
     assert attempt_1.status == AttemptStatus.ABANDONED
 
     # 2. Healthy Worker-2 claims and completes the recovered job
-    worker_2 = WorkerEngine(options=WorkerOptions(worker_id="healthy-worker-02", burst=True))
+    worker_2 = WorkerEngine(
+        options=WorkerOptions(worker_id="healthy-worker-02", burst=True)
+    )
     processed = worker_2.run()
     assert processed == 1
 
