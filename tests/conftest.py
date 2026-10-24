@@ -1,17 +1,29 @@
 import pytest
 from django.contrib.auth import get_user_model
+from redis.exceptions import RedisError
 from rest_framework.test import APIClient
 
 from apps.accounts.models import ApiKey
+from apps.core.redis import get_redis_client
+
+
+@pytest.fixture(autouse=True)
+def clear_redis_between_tests():
+    """
+    Ensures test isolation by clearing ephemeral Redis state (cache & rate limits)
+    before every test.
+    """
+    try:
+        get_redis_client().flushdb()
+    except (RedisError, OSError):
+        pass
 
 
 @pytest.fixture
 def auth_user(db):
     """Fixture providing a default test user."""
     User = get_user_model()
-    return User.objects.create_user(
-        username="default_test_user", password="password123"
-    )
+    return User.objects.create_user(username="default_test_user", password="password123")
 
 
 @pytest.fixture
