@@ -18,6 +18,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "locust>=2.31,<3.0",
     "pytest>=8.3.3",
     "pytest-cov>=5.0.0",
     "pytest-django>=4.9.0",
