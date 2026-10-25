@@ -60,7 +60,7 @@ job-platform/
 
 ```powershell
 # 1. Clone the repository and navigate into the project root
-git clone <your-repository-url> job-platform
+git clone https://github.com/taizeem/background-job.git job-platform
 Set-Location job-platform
 
 # 2. Create your local .env from the template
